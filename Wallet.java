@@ -1,17 +1,20 @@
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 public class Wallet {
-    private String walletId;  // Unique Wallet ID
-    private User owner;       // Reference to the owning user
-
+    private String walletId;
+    private User owner;
     private double balance;
     private double spendingLimit;
-    private List<Transaction> transactionHistory;
+    private final List<Transaction> transactionHistory;
 
     public Wallet(User owner) {
-        this.walletId = UUID.randomUUID().toString(); // Generate a unique wallet ID
+        this.walletId = UUID.randomUUID().toString();
         this.owner = owner;
         this.balance = 0.0;
         this.spendingLimit = Double.MAX_VALUE;
@@ -19,16 +22,23 @@ public class Wallet {
     }
 
     public void deposit(double amount) {
-        if (amount > 0) {
-            this.balance += amount;
-        } // Throw exception for negative amount
+        if (amount <= 0) {
+            throw new NegativeAmountException("Deposit amount must be positive.");
+        }
+        this.balance += amount;
     }
 
     public void withdraw(double amount) {
-        if (amount <= balance && amount <= spendingLimit) {
-            this.balance -= amount;
+        if (amount <= 0) {
+            throw new NegativeAmountException("Withdrawal amount must be positive.");
         }
-        // Overspending or balance exceptions to be handled here
+        if (amount > balance) {
+            throw new InsufficientFundsException("Insufficient balance for withdrawal.");
+        }
+        if (amount > spendingLimit) {
+            throw new SpendingLimitExceededException("Amount exceeds spending limit.");
+        }
+        this.balance -= amount;
     }
 
     public double getBalance() {
@@ -36,16 +46,22 @@ public class Wallet {
     }
 
     public void setSpendingLimit(double limit) {
+        if (limit < 0) {
+            throw new InvalidSpendingLimitException("Spending limit cannot be negative.");
+        }
         this.spendingLimit = limit;
-    } // Throw invalid spending limit here
+    }
 
     public boolean checkSpendingLimit(double amount) {
         return amount <= spendingLimit;
-    } 
+    }
 
     public void addTransaction(Transaction txn) {
+        if (txn == null) {
+            throw new NullTransactionException("Transaction cannot be null.");
+        }
         transactionHistory.add(txn);
-    } // Throw exception for null transaction
+    }
 
     public List<Transaction> getTransactionHistory() {
         return transactionHistory;

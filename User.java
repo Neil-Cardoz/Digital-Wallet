@@ -1,3 +1,4 @@
+// User class
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -5,7 +6,7 @@ import java.util.List;
 
 public class User {
     private static List<User> userDatabase = new ArrayList<>();
-    private static int userIdCounter = 1; // Start user ID from 1
+    private static int userIdCounter = 1;
 
     private int userId;
     private String name;
@@ -15,7 +16,7 @@ public class User {
     private boolean isActive;
     private LocalDateTime lastLoginTime;
 
-    public User(int userId, String name, String email, String password) {
+    public User(String name, String email, String password) {
         this.userId = userIdCounter++;
         this.name = name;
         this.email = email;
@@ -25,43 +26,31 @@ public class User {
         this.lastLoginTime = null;
     }
 
-    // Getters
-    public int getUserId() { return userId; }
-    public String getName() { return name; }
-    public String getEmail() { return email; }
-    public Wallet getWallet() { return wallet; }
-    public boolean isActive() { return isActive; }
-
-    public void register() {
+    public void register() throws EmailAlreadyRegisteredException {
         for (User user : userDatabase) {
             if (user.getEmail().equalsIgnoreCase(this.email)) {
-                System.out.println("Email already registered.");
-                return;
+                throw new EmailAlreadyRegisteredException("Email already registered: " + email);
             }
         }
-
         userDatabase.add(this);
         System.out.println("User registered successfully: " + email);
     }
 
-    public static User login(String email, String password) {
+    public static User login(String email, String password)
+            throws AuthenticationException, InactiveAccountException {
         for (User user : userDatabase) {
             if (user.getEmail().equalsIgnoreCase(email) && user.password.equals(password)) {
                 if (!user.isActive) {
-                    System.out.println("Account is inactive. Contact admin.");
-                    return null;
+                    throw new InactiveAccountException("Account is inactive. Contact admin.");
                 }
-
                 user.lastLoginTime = LocalDateTime.now();
                 System.out.println("Login successful: " + email);
                 return user;
             }
         }
-        System.out.println("Login failed: Invalid email or password.");
-        return null; // Throw exception for invalid user
+        throw new AuthenticationException("Invalid email or password.");
     }
 
-    // Auto-deactivate if inactive for over 30 days
     public void checkInactivity() {
         if (lastLoginTime != null) {
             Duration inactivity = Duration.between(lastLoginTime, LocalDateTime.now());
@@ -72,7 +61,6 @@ public class User {
         }
     }
 
-    // Optional: manually deactivate/activate
     public void deactivate() {
         this.isActive = false;
     }
@@ -81,4 +69,10 @@ public class User {
         this.isActive = true;
         this.lastLoginTime = LocalDateTime.now();
     }
+
+    public int getUserId() { return userId; }
+    public String getName() { return name; }
+    public String getEmail() { return email; }
+    public Wallet getWallet() { return wallet; }
+    public boolean isActive() { return isActive; }
 }
