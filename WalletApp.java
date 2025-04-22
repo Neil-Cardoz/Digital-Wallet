@@ -3,42 +3,120 @@ import java.util.Scanner;
 import java.util.UUID;
 
 public class WalletApp {
-    // === Configure these ===
-    private static final String URL  = "jdbc:mysql://localhost:3306/nebula_wallet_nofk?useSSL=false&serverTimezone=UTC";
+    private static final String URL = "jdbc:mysql://localhost:3306/nebula_wallet_nofk";
     private static final String USER = "root";
-    private static final String PASS = "A1s2D3f4@1"; // Put your password here
+    private static final String PASS = "*****";
 
     public static void main(String[] args) {
-        try (Scanner sc = new Scanner(System.in)) {
+        try (Scanner sc = new Scanner(System.in);
+             Connection conn = DriverManager.getConnection(URL, USER, PASS)) {
+
             while (true) {
                 System.out.println("\n=== Wallet Menu ===");
-                System.out.println("1) Register new user");
-                System.out.println("2) Deposit");
-                System.out.println("3) Withdraw");
-                System.out.println("4) View balance");
-                System.out.println("5) Exit");
+                System.out.println("1) Login");
+                System.out.println("2) Register");
+                System.out.println("3) Exit");
                 System.out.print("Select> ");
-                String choice = sc.nextLine().trim();
+                String option = sc.nextLine().trim();
 
-                switch (choice) {
-                    case "1": registerUser(sc);          break;
-                    case "2": deposit(sc);               break;
-                    case "3": withdraw(sc);              break;
-                    case "4": viewBalance(sc);           break;
-                    case "5": System.out.println("Goodbye!"); return;
-                    default:  System.out.println("Invalid choice.");
+                switch (option) {
+                    case "1":
+                        try {
+                            Integer userId = login(sc, conn);
+                            if (userId != null) {
+                                userMenu(sc, conn, userId);
+                            } else {
+                                System.out.println("Invalid credentials.");
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Login failed: " + e.getMessage());
+                        }
+                        break;
+                    case "2":
+                        try {
+                            registerUser(sc, conn);
+                        } catch (Exception e) {
+                            System.out.println("Registration failed: " + e.getMessage());
+                        }
+                        break;
+                    case "3":
+                        System.out.println("Goodbye!");
+                        return;
+                    default:
+                        System.out.println("Invalid choice.");
                 }
             }
+
         } catch (SQLException e) {
-            e.printStackTrace();
+            System.out.println("Database connection error: " + e.getMessage());
         }
     }
 
-    private static Connection connect() throws SQLException {
-        return DriverManager.getConnection(URL, USER, PASS);
+    private static Integer login(Scanner sc, Connection conn) throws SQLException {
+        System.out.print("Email: ");
+        String email = sc.nextLine().trim();
+        System.out.print("Password: ");
+        String pw = sc.nextLine().trim();
+
+        String sql = "SELECT user_id FROM users WHERE email=? AND password=?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, email);
+            ps.setString(2, pw);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    int userId = rs.getInt("user_id");
+                    System.out.println("Login successful! User ID: " + userId);
+                    return userId;
+                }
+            }
+        }
+        return null;
     }
 
-    private static void registerUser(Scanner sc) throws SQLException {
+    private static void userMenu(Scanner sc, Connection conn, int userId) {
+        while (true) {
+            System.out.println("\n--- User Menu ---");
+            System.out.println("1) Deposit");
+            System.out.println("2) Withdraw");
+            System.out.println("3) View balance");
+            System.out.println("4) Delete wallet");
+            System.out.println("5) Logout");
+            System.out.println("6) View transactions");
+
+            System.out.print("Select> ");
+            String choice = sc.nextLine().trim();
+
+            try {
+                switch (choice) {
+                    case "1":
+                        deposit(sc, conn, userId);
+                        break;
+                    case "2":
+                        withdraw(sc, conn, userId);
+                        break;
+                    case "3":
+                        viewBalance(conn, userId);
+                        break;
+                    case "4":
+                        deleteWallet(conn, userId);
+                        return;
+                    case "5":
+                        System.out.println("Logged out.");
+                        return;
+                    case "6":
+                        viewTransactions(conn, userId);
+                        break;
+
+                    default:
+                        System.out.println("Invalid choice.");
+                }
+            } catch (Exception e) {
+                System.out.println("Error: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void registerUser(Scanner sc, Connection conn) throws SQLException {
         System.out.print("Name: ");
         String name = sc.nextLine().trim();
         System.out.print("Email: ");
@@ -47,8 +125,7 @@ public class WalletApp {
         String pw = sc.nextLine().trim();
 
         String insertUser = "INSERT INTO users (name,email,password) VALUES (?,?,?)";
-        try (Connection conn = connect();
-             PreparedStatement pu = conn.prepareStatement(insertUser, Statement.RETURN_GENERATED_KEYS)) {
+        try (PreparedStatement pu = conn.prepareStatement(insertUser, Statement.RETURN_GENERATED_KEYS)) {
             pu.setString(1, name);
             pu.setString(2, email);
             pu.setString(3, pw);
@@ -66,7 +143,7 @@ public class WalletApp {
 
     private static void createWallet(Connection conn, int userId) throws SQLException {
         String walletId = UUID.randomUUID().toString();
-        String insertW = "INSERT INTO wallets (wallet_id,user_id) VALUES (?,?)";
+        String insertW = "INSERT INTO wallets (wallet_id,user_id,balance) VALUES (?,?,0)";
         try (PreparedStatement pw = conn.prepareStatement(insertW)) {
             pw.setString(1, walletId);
             pw.setInt(2, userId);
@@ -75,104 +152,118 @@ public class WalletApp {
         }
     }
 
-    private static void deposit(Scanner sc) throws SQLException {
-        System.out.print("Wallet ID: ");
-        String wId = sc.nextLine().trim();
+    private static void deposit(Scanner sc, Connection conn, int userId) {
         System.out.print("Amount to deposit: ");
-        double amt = Double.parseDouble(sc.nextLine().trim());
+        try {
+            double amt = Double.parseDouble(sc.nextLine().trim());
 
-        if (amt <= 0) {
-            throw new NegativeAmountException("Deposit amount must be positive.");
-        }
-
-        // Add transaction record
-        String insertTxn = "INSERT INTO transactions (wallet_id, amount, type, date) VALUES (?, ?, ?, ?)";
-        try (Connection conn = connect()) {
-            // Proceed to deposit and create transaction record
-            String sql = "UPDATE wallets SET balance = balance + ? WHERE wallet_id = ?";
+            String sql = "UPDATE wallets SET balance = balance + ? WHERE user_id = ?";
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setDouble(1, amt);
-                ps.setString(2, wId);
+                ps.setInt(2, userId);
                 int updated = ps.executeUpdate();
                 if (updated > 0) {
-                    System.out.println("Deposited ₹" + amt);
-                    // Add the transaction
-                    String date = java.time.LocalDate.now().toString();
-                    try (PreparedStatement txnPs = conn.prepareStatement(insertTxn)) {
-                        txnPs.setString(1, wId);
-                        txnPs.setDouble(2, amt);
-                        txnPs.setString(3, "Deposit");
-                        txnPs.setString(4, date);
-                        txnPs.executeUpdate();
+                    String walletId = getWalletId(conn, userId);
+                    if (walletId != null) {
+                        System.out.println("Deposited ₹" + amt);
+                        logTransaction(conn, walletId, amt, "DEPOSIT");
+                    } else {
+                        System.out.println("Failed to log transaction: Wallet ID not found.");
                     }
                 } else {
                     System.out.println("Wallet not found.");
                 }
             }
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid amount.");
+        } catch (SQLException e) {
+            System.out.println("Deposit failed: " + e.getMessage());
         }
     }
 
-    private static void withdraw(Scanner sc) throws SQLException {
-        System.out.print("Wallet ID: ");
-        String wId = sc.nextLine().trim();
+    private static void withdraw(Scanner sc, Connection conn, int userId) {
         System.out.print("Amount to withdraw: ");
-        double amt = Double.parseDouble(sc.nextLine().trim());
+        try {
+            double amt = Double.parseDouble(sc.nextLine().trim());
 
-        if (amt <= 0) {
-            throw new NegativeAmountException("Withdrawal amount must be positive.");
-        }
-
-        // Simple check: fetch balance first
-        String qry = "SELECT balance, spending_limit FROM wallets WHERE wallet_id=?";
-        try (Connection conn = connect();
-             PreparedStatement pq = conn.prepareStatement(qry)) {
-            pq.setString(1, wId);
-            try (ResultSet rs = pq.executeQuery()) {
-                if (!rs.next()) {
-                    System.out.println("Wallet not found.");
-                    return;
-                }
-                double bal = rs.getDouble("balance");
-                double limit = rs.getDouble("spending_limit");
-
-                if (amt > bal) {
-                    throw new InsufficientFundsException("Insufficient funds (balance ₹" + bal + ")");
-                }
-                if (amt > limit) {
-                    throw new SpendingLimitExceededException("Withdrawal exceeds spending limit.");
+            double bal = 0;
+            String qry = "SELECT balance FROM wallets WHERE user_id=?";
+            try (PreparedStatement pq = conn.prepareStatement(qry)) {
+                pq.setInt(1, userId);
+                try (ResultSet rs = pq.executeQuery()) {
+                    if (rs.next()) {
+                        bal = rs.getDouble("balance");
+                    } else {
+                        System.out.println("Wallet not found.");
+                        return;
+                    }
                 }
             }
 
-            // Proceed with withdrawal and record the transaction
-            String upd = "UPDATE wallets SET balance = balance - ? WHERE wallet_id=?";
+            if (amt > bal) {
+                System.out.println("Insufficient funds (balance ₹" + bal + ")");
+                return;
+            }
+
+            String upd = "UPDATE wallets SET balance = balance - ? WHERE user_id=?";
             try (PreparedStatement pw = conn.prepareStatement(upd)) {
                 pw.setDouble(1, amt);
-                pw.setString(2, wId);
-                pw.executeUpdate();
-                System.out.println("Withdrew ₹" + amt);
-
-                // Add the transaction record
-                String insertTxn = "INSERT INTO transactions (wallet_id, amount, type, date) VALUES (?, ?, ?, ?)";
-                String date = java.time.LocalDate.now().toString();
-                try (PreparedStatement txnPs = conn.prepareStatement(insertTxn)) {
-                    txnPs.setString(1, wId);
-                    txnPs.setDouble(2, amt);
-                    txnPs.setString(3, "Withdrawal");
-                    txnPs.setString(4, date);
-                    txnPs.executeUpdate();
+                pw.setInt(2, userId);
+                int updated = pw.executeUpdate();
+                if (updated > 0) {
+                    String walletId = getWalletId(conn, userId);
+                    if (walletId != null) {
+                        System.out.println("Withdrew ₹" + amt);
+                        logTransaction(conn, walletId, amt, "WITHDRAW");
+                    } else {
+                        System.out.println("Failed to log transaction: Wallet ID not found.");
+                    }
                 }
             }
+
+        } catch (NumberFormatException e) {
+            System.out.println("Invalid amount.");
+        } catch (SQLException e) {
+            System.out.println("Withdrawal failed: " + e.getMessage());
         }
     }
 
-    private static void viewBalance(Scanner sc) throws SQLException {
-        System.out.print("Wallet ID: ");
-        String wId = sc.nextLine().trim();
 
-        String sql = "SELECT balance FROM wallets WHERE wallet_id=?";
-        try (Connection conn = connect();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, wId);
+    private static void logTransaction(Connection conn, String walletId, double amt, String txnType) {
+        String sql = "INSERT INTO transactions (wallet_id, amount, txn_type, txn_time) VALUES (?, ?, ?, CURRENT_TIMESTAMP)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, walletId);
+            ps.setDouble(2, amt);
+            ps.setString(3, txnType);
+            ps.executeUpdate();
+            System.out.println("Transaction logged: " + txnType + " ₹" + amt);
+        } catch (SQLException e) {
+            System.out.println("Failed to log transaction: " + e.getMessage());
+        }
+    }
+
+
+
+    private static String getWalletId(Connection conn, int userId) {
+        String sql = "SELECT wallet_id FROM wallets WHERE user_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("wallet_id");
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Error fetching wallet ID: " + e.getMessage());
+        }
+        return null;
+    }
+
+
+    private static void viewBalance(Connection conn, int userId) {
+        String sql = "SELECT balance FROM wallets WHERE user_id=?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     System.out.println("Current balance: ₹" + rs.getDouble("balance"));
@@ -180,7 +271,56 @@ public class WalletApp {
                     System.out.println("Wallet not found.");
                 }
             }
+        } catch (SQLException e) {
+            System.out.println("View balance failed: " + e.getMessage());
         }
     }
-}
 
+    private static void deleteWallet(Connection conn, int userId) {
+        String sql = "DELETE FROM wallets WHERE user_id=?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            int deleted = ps.executeUpdate();
+            if (deleted > 0)
+                System.out.println("Wallet deleted.");
+            else
+                System.out.println("Wallet not found.");
+        } catch (SQLException e) {
+            System.out.println("Delete failed: " + e.getMessage());
+        }
+    }
+    private static void viewTransactions(Connection conn, int userId) {
+        String walletId = getWalletId(conn, userId);
+        if (walletId == null) {
+            System.out.println("No wallet found for the user.");
+            return;
+        }
+
+        String sql = "SELECT txn_id, amount, txn_type, txn_time FROM transactions WHERE wallet_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, walletId);
+            try (ResultSet rs = ps.executeQuery()) {
+                System.out.println("\n--- Transaction History ---");
+                boolean hasResults = false;
+                while (rs.next()) {
+                    hasResults = true;
+                    int id = rs.getInt("txn_id");
+                    double amount = rs.getDouble("amount");
+                    String type = rs.getString("txn_type");
+                    String txnTime = rs.getString("txn_time"); // Fetch txn_time (Datetime column)
+                    System.out.printf("Txn ID: %d | ₹%.2f | Type: %s | Date: %s%n",
+                            id, amount, type, txnTime);
+                }
+                if (!hasResults) {
+                    System.out.println("No transactions found.");
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Failed to fetch transactions: " + e.getMessage());
+        }
+    }
+
+
+
+
+}

@@ -74,6 +74,7 @@ public class Wallet {
     public User getOwner() {
         return owner;
     }
+
     // *** Newly added method to get spending limit ***
     public double getSpendingLimit() {
         return spendingLimit;  // Getter for spending limit
